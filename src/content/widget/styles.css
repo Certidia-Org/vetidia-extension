@@ -1,0 +1,399 @@
+/* Co-pilot widget styles — isolated inside Shadow DOM */
+
+:host {
+  all: initial;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Floating Action Button ─────────────────────────────── */
+
+.vetidia-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.vetidia-fab:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+}
+
+.vetidia-fab svg {
+  width: 22px;
+  height: 22px;
+}
+
+.vetidia-fab .badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: #16a34a;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: 2px solid white;
+}
+
+/* ── Panel ────────────────────────────────────────────────── */
+
+.vetidia-panel {
+  position: fixed;
+  bottom: 84px;
+  right: 24px;
+  z-index: 2147483647;
+  width: 340px;
+  max-height: 480px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: vetidia-slide-up 0.2s ease-out;
+}
+
+@keyframes vetidia-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.vetidia-panel-header {
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.vetidia-panel-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vetidia-panel-header .platform-badge {
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.vetidia-panel-header .close-btn {
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.8;
+}
+
+.vetidia-panel-header .close-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ── Field List ────────────────────────────────────────────── */
+
+.vetidia-fields {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.vetidia-field-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #f3f4f6;
+  transition: background 0.15s;
+}
+
+.vetidia-field-row:last-child {
+  border-bottom: none;
+}
+
+.vetidia-field-row:hover {
+  background: #f9fafb;
+}
+
+.vetidia-field-row.filled {
+  background: #f0fdf4;
+}
+
+/* Confidence dot */
+.vetidia-conf {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.vetidia-conf.high {
+  background: #16a34a;
+}
+
+.vetidia-conf.medium {
+  background: #eab308;
+}
+
+.vetidia-conf.low {
+  background: #ef4444;
+}
+
+.vetidia-field-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.vetidia-field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vetidia-field-value {
+  font-size: 11px;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.vetidia-field-check {
+  color: #16a34a;
+  flex-shrink: 0;
+}
+
+.vetidia-field-check svg {
+  width: 16px;
+  height: 16px;
+}
+
+.vetidia-ai-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: #7c3aed;
+  background: #ede9fe;
+  padding: 1px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  letter-spacing: 0.3px;
+}
+
+/* ── Footer / Actions ──────────────────────────────────────── */
+
+.vetidia-panel-footer {
+  padding: 12px 16px;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+.vetidia-fill-btn {
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.vetidia-fill-btn:hover {
+  opacity: 0.92;
+}
+
+.vetidia-fill-btn:active {
+  transform: scale(0.98);
+}
+
+.vetidia-fill-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.vetidia-fill-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.vetidia-status {
+  margin-top: 8px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.vetidia-status.success {
+  color: #16a34a;
+}
+
+.vetidia-status.error {
+  color: #ef4444;
+}
+
+/* ── Empty state ───────────────────────────────────────────── */
+
+.vetidia-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 13px;
+}
+
+/* ── File Upload Section ───────────────────────────────────── */
+
+.vetidia-files-section {
+  padding: 10px 16px;
+  border-top: 1px solid #e5e7eb;
+  background: #fefce8;
+}
+
+.vetidia-files-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #92400e;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.vetidia-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.vetidia-file-row:last-child {
+  margin-bottom: 0;
+}
+
+.vetidia-file-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #374151;
+  flex-shrink: 0;
+  min-width: 60px;
+}
+
+.vetidia-file-select {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 11px;
+  background: white;
+  color: #374151;
+  cursor: pointer;
+}
+
+.vetidia-file-select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.vetidia-upload-btn {
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  background: #2563eb;
+  color: white;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+
+.vetidia-upload-btn:hover {
+  opacity: 0.85;
+}
+
+.vetidia-upload-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.vetidia-file-status {
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.vetidia-file-status.success {
+  color: #16a34a;
+}
+
+.vetidia-file-status.error {
+  color: #ef4444;
+}
+
+.vetidia-file-status.uploading {
+  color: #2563eb;
+}
+
+/* ── Loading spinner ───────────────────────────────────────── */
+
+@keyframes vetidia-spin {
+  to { transform: rotate(360deg); }
+}
+
+.vetidia-spinner {
+  animation: vetidia-spin 0.8s linear infinite;
+  width: 16px;
+  height: 16px;
+}
