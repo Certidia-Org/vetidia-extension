@@ -28,14 +28,16 @@ export default defineBackground(() => {
   ];
 
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    if (changeInfo.status !== "complete" || !tab.url) return;
-    const isATS = ATS_URL_PATTERNS.some((p) => tab.url!.includes(p));
+    // Check on both loading (URL available early) and complete
+    const url = changeInfo.url || tab.url;
+    if (!url) return;
+    if (changeInfo.status !== "complete" && changeInfo.status !== "loading") return;
+    const isATS = ATS_URL_PATTERNS.some((p) => url.includes(p));
     if (isATS) {
       chrome.action.setBadgeText({ tabId, text: "•" });
       chrome.action.setBadgeBackgroundColor({ tabId, color: "#10b981" });
-    } else {
+    } else if (changeInfo.status === "complete") {
       chrome.action.setBadgeText({ tabId, text: "" });
-      // Clear stale tab state
       chrome.storage.session.remove(`tab_${tabId}`).catch(() => {});
     }
   });

@@ -163,10 +163,12 @@ export default function SidePanel() {
       } catch {}
 
       // Current tab ATS state
+      let hasStoredState = false;
       try {
         const tabState = await chrome.runtime.sendMessage({ type: "GET_TAB_STATE" });
-        if (mounted && tabState?.state?.job) setJob(tabState.state.job);
+        if (mounted && tabState?.state?.job) { setJob(tabState.state.job); hasStoredState = true; }
         if (mounted && tabState?.state?.fields) {
+          hasStoredState = true;
           const f = tabState.state.fields;
           setFillState(prev => ({
             ...prev,
@@ -184,6 +186,36 @@ export default function SidePanel() {
           }));
         }
       } catch {}
+
+      // If no stored state, probe current tab URL to see if it's an ATS page and trigger scan
+      if (!hasStoredState && mounted) {
+        try {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (tab?.url) {
+            const atsPatterns = [
+              "greenhouse.io", "lever.co", "myworkdayjobs.com", "ashbyhq.com",
+              "icims.com", "smartrecruiters.com", "linkedin.com/jobs",
+              "taleo.net", "breezy.hr", "bamboohr.com", "jazz.co",
+              "jobvite.com", "recruitee.com", "workable.com",
+            ];
+            const isATS = atsPatterns.some(p => tab.url!.includes(p));
+            if (isATS && tab.id) {
+              // Try to trigger a scan — content script may or may not be loaded
+              try {
+                await chrome.tabs.sendMessage(tab.id, { type: "RESCAN_FIELDS" });
+              } catch {
+                // Content script not loaded — inject it
+                try {
+                  await chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    files: ["content-scripts/content.js"],
+                  });
+                } catch {}
+              }
+            }
+          }
+        } catch {}
+      }
 
       // Answers
       try {
@@ -312,8 +344,23 @@ export default function SidePanel() {
 
   const handleRescan = async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) {
-      chrome.tabs.sendMessage(tab.id, { type: "RESCAN_FIELDS" }).catch(() => {});
+    if (!tab?.id) return;
+    try {
+      // Try sending to existing content script
+      await chrome.tabs.sendMessage(tab.id, { type: "RESCAN_FIELDS" });
+    } catch {
+      // Content script not loaded — inject it programmatically
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["content-scripts/content.js"],
+        });
+        // Wait for content script to initialize
+        await new Promise(r => setTimeout(r, 1500));
+        await chrome.tabs.sendMessage(tab.id, { type: "RESCAN_FIELDS" }).catch(() => {});
+      } catch (e) {
+        console.warn("[Vetidia] Could not inject content script:", e);
+      }
     }
   };
 
