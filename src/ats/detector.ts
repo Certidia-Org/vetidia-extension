@@ -30,7 +30,7 @@ interface ATSPattern {
 const ATS_PATTERNS: ATSPattern[] = [
   {
     platform: "greenhouse",
-    urlPatterns: ["boards.greenhouse.io", "greenhouse.io/"],
+    urlPatterns: ["boards.greenhouse.io", "job-boards.greenhouse.io"],
     domCheck: (doc) => {
       const meta = doc.querySelector('meta[name="generator"]');
       return meta?.getAttribute("content")?.includes("Greenhouse") ?? false;
@@ -45,9 +45,8 @@ const ATS_PATTERNS: ATSPattern[] = [
     urlPatterns: [
       "myworkdayjobs.com",
       "myworkdaysite.com",
-      ".wd1.",
-      ".wd5.",
-      ".wd3.",
+      ".wd1.", ".wd2.", ".wd3.", ".wd4.", ".wd5.",
+      ".wd12.", ".wd101.",
     ],
   },
   {
@@ -125,79 +124,71 @@ export function detectATS(
 export function isApplicationPage(url: string, doc: Document): boolean {
   const lowerUrl = url.toLowerCase();
 
-  // URL-based heuristics — generous matching (false positives are cheap)
-  if (lowerUrl.includes("/apply")) return true;
-  if (lowerUrl.includes("/application")) return true;
+  // Generic URL path patterns that strongly indicate an application form
+  if (/\/(apply|application)(\/|$|\?|#)/.test(lowerUrl)) return true;
 
-  // Greenhouse: any job page (listing pages also have forms embedded)
-  if (lowerUrl.includes("greenhouse.io")) return true;
+  // ── Platform-specific URL checks (strict) ──
 
-  // Lever: listings AND apply pages
-  if (lowerUrl.includes("jobs.lever.co") || lowerUrl.includes("apply.lever.co")) return true;
-
-  // Workday: most pages on myworkdayjobs.com are application flows
-  if (lowerUrl.includes("myworkdayjobs.com")) return true;
-
-  // Ashby: any page
-  if (lowerUrl.includes("ashbyhq.com")) return true;
-
-  // iCIMS: job pages
-  if (lowerUrl.includes(".icims.com")) return true;
-
-  // LinkedIn Easy Apply modal
-  if (lowerUrl.includes("linkedin.com") && doc.querySelector(".jobs-easy-apply-modal"))
-    return true;
-
-  // Taleo
-  if (lowerUrl.includes(".taleo.net")) return true;
-
-  // Breezy HR
-  if (lowerUrl.includes(".breezy.hr")) return true;
-
-  // BambooHR
-  if (lowerUrl.includes(".bamboohr.com")) return true;
-
-  // JazzHR
-  if (lowerUrl.includes(".jazz.co")) return true;
-
-  // Jobvite
-  if (lowerUrl.includes(".jobvite.com")) return true;
-
-  // Recruitee
-  if (lowerUrl.includes(".recruitee.com")) return true;
-
-  // Workable
-  if (lowerUrl.includes(".workable.com")) return true;
-
-  // SmartRecruiters
-  if (lowerUrl.includes("smartrecruiters.com")) return true;
-
-  // DOM-based: check if there's a form with common application fields
-  const forms = doc.querySelectorAll("form");
-  for (const form of forms) {
-    const inputs = form.querySelectorAll('input, textarea, select');
-    if (inputs.length >= 3) {
-      const fieldNames = Array.from(inputs).map(
-        (el) =>
-          (el.getAttribute("name") ?? "") +
-          (el.getAttribute("id") ?? "") +
-          (el.getAttribute("placeholder") ?? ""),
-      );
-      const combined = fieldNames.join(" ").toLowerCase();
-      const applicationKeywords = [
-        "name",
-        "email",
-        "phone",
-        "resume",
-        "cover",
-        "linkedin",
-      ];
-      const matchCount = applicationKeywords.filter((kw) =>
-        combined.includes(kw),
-      ).length;
-      if (matchCount >= 2) return true;
-    }
+  // Greenhouse: boards.greenhouse.io/company/jobs/ID#app is the application anchor
+  if (lowerUrl.includes("boards.greenhouse.io")) {
+    // The #app fragment or presence of application form
+    if (lowerUrl.includes("#app")) return true;
+    // Greenhouse embeds the form on the job page — check DOM
+    if (doc.querySelector("#application, #app_body, .application-form, form#application-form")) return true;
+    // Greenhouse job pages have embedded forms, accept if form has email field
+    return hasApplicationForm(doc);
   }
 
+  // Lever: apply.lever.co is always an application; jobs.lever.co/company/id/apply
+  if (lowerUrl.includes("apply.lever.co")) return true;
+  if (lowerUrl.includes("jobs.lever.co") && lowerUrl.includes("/apply")) return true;
+  // Lever job pages embed the form at bottom
+  if (lowerUrl.includes("jobs.lever.co") && doc.querySelector(".application-page, .posting-apply")) return true;
+
+  // Workday: /apply path within myworkdayjobs.com
+  if (lowerUrl.includes("myworkdayjobs.com") && /\/(apply|login|create)/.test(lowerUrl)) return true;
+  if (lowerUrl.includes("myworkdayjobs.com") && doc.querySelector('[data-automation-id="jobApplicationPage"]')) return true;
+
+  // Ashby: /application path is the form
+  if (lowerUrl.includes("ashbyhq.com") && lowerUrl.includes("/application")) return true;
+  if (lowerUrl.includes("ashbyhq.com") && doc.querySelector('[class*="applicationForm"], form[class*="application"]')) return true;
+
+  // iCIMS: look for application form
+  if (lowerUrl.includes(".icims.com") && /\/apply|\/login/.test(lowerUrl)) return true;
+
+  // LinkedIn: Easy Apply modal (appears dynamically)
+  if (lowerUrl.includes("linkedin.com") && doc.querySelector(".jobs-easy-apply-modal, .jobs-easy-apply-content")) return true;
+
+  // SmartRecruiters: /apply or /application
+  if (lowerUrl.includes("smartrecruiters.com") && /\/apply|\/application/.test(lowerUrl)) return true;
+
+  // For remaining ATS platforms, use DOM-based form detection
+  if (lowerUrl.includes(".taleo.net") || lowerUrl.includes(".breezy.hr") ||
+      lowerUrl.includes(".bamboohr.com") || lowerUrl.includes(".jazz.co") ||
+      lowerUrl.includes(".jobvite.com") || lowerUrl.includes(".recruitee.com") ||
+      lowerUrl.includes(".workable.com")) {
+    return hasApplicationForm(doc);
+  }
+
+  // Final fallback: DOM-based form detection for unknown pages
+  return hasApplicationForm(doc);
+}
+
+/** Check if the page has a form that looks like a job application. */
+function hasApplicationForm(doc: Document): boolean {
+  const forms = doc.querySelectorAll("form");
+  for (const form of forms) {
+    const inputs = form.querySelectorAll(
+      'input:not([type="hidden"]):not([type="search"]):not([type="submit"]):not([type="button"]), textarea, select'
+    );
+    if (inputs.length >= 3) {
+      const hasNameOrEmail = form.querySelector(
+        'input[name*="name" i], input[name*="email" i], input[type="email"], ' +
+        'input[autocomplete*="name"], input[autocomplete*="email"], ' +
+        'input[id*="name" i], input[id*="email" i]'
+      );
+      if (hasNameOrEmail) return true;
+    }
+  }
   return false;
 }

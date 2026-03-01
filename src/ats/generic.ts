@@ -42,12 +42,58 @@ function scanFormFields(
     HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
   >("input, textarea, select");
 
+  const processedRadioGroups = new Set<string>();
   let index = 0;
   for (const el of formElements) {
     // Skip hidden, submit, button, file inputs
     if (el instanceof HTMLInputElement) {
-      const skipTypes = ["hidden", "submit", "button", "image", "reset", "checkbox", "radio"];
+      const skipTypes = ["hidden", "submit", "button", "image", "reset"];
       if (skipTypes.includes(el.type)) continue;
+
+      // Checkboxes — detect individually
+      if (el.type === "checkbox") {
+        if (!isVisible(el)) continue;
+        const label = findLabelForElement(el, doc);
+        if (!label) continue;
+        detected.push({
+          profileKey: labelToProfileKey(label),
+          label,
+          tagName: "input",
+          type: "checkbox",
+          currentValue: el.checked ? "true" : "false",
+          selector: buildSelector(el),
+          confidence: "medium",
+          fieldType: "checkbox" as any,
+        });
+        continue;
+      }
+
+      // Radio buttons — group by name, process once per group
+      if (el.type === "radio") {
+        if (!el.name || processedRadioGroups.has(el.name)) continue;
+        processedRadioGroups.add(el.name);
+        if (!isVisible(el)) continue;
+
+        const groupLabel = findRadioGroupLabel(el, doc);
+        if (!groupLabel) continue;
+
+        const options = getRadioGroupOptions(el.name, doc);
+        const selectedRadio = doc.querySelector<HTMLInputElement>(
+          `input[name="${CSS.escape(el.name)}"]:checked`
+        );
+        detected.push({
+          profileKey: labelToProfileKey(groupLabel),
+          label: groupLabel,
+          tagName: "input",
+          type: "radio-group",
+          currentValue: selectedRadio?.value ?? "",
+          selector: `input[name="${CSS.escape(el.name)}"]`,
+          confidence: "medium",
+          fieldType: "radio-group" as any,
+          ...(options.length > 0 && { options }),
+        });
+        continue;
+      }
       // File inputs are handled separately
       if (el.type === "file") {
         detected.push({
@@ -394,5 +440,33 @@ function buildProfileContext(profile: UserProfile): string {
   if (profile.linkedin_url) lines.push(`LinkedIn: ${profile.linkedin_url}`);
   if (profile.github_url) lines.push(`GitHub: ${profile.github_url}`);
 
-  return lines.join("\n");
+}
+
+/** Find the label for a radio group (fieldset legend or closest label-like text). */
+function findRadioGroupLabel(radio: HTMLInputElement, doc: Document): string {
+  const fieldset = radio.closest("fieldset");
+  if (fieldset) {
+    const legend = fieldset.querySelector("legend");
+    if (legend?.textContent?.trim()) return legend.textContent.trim();
+  }
+  const labelledBy = radio.getAttribute("aria-labelledby");
+  if (labelledBy) {
+    const labelEl = doc.getElementById(labelledBy);
+    if (labelEl?.textContent?.trim()) return labelEl.textContent.trim();
+  }
+  const parent = radio.parentElement?.parentElement;
+  if (parent) {
+    const label = parent.querySelector("label, [class*='label'], [class*='question']");
+    if (label?.textContent?.trim() && !label.querySelector("input")) return label.textContent.trim();
+  }
+  return radio.name || "Unknown question";
+}
+
+/** Get the text options for a radio group. */
+function getRadioGroupOptions(name: string, doc: Document): string[] {
+  const radios = doc.querySelectorAll<HTMLInputElement>(`input[name="${CSS.escape(name)}"]`);
+  return Array.from(radios).map(r => {
+    const label = findLabelForElement(r, doc);
+    return label || r.value;
+  }).filter(Boolean);
 }

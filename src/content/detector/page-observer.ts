@@ -40,18 +40,27 @@ export function stopPageObserver(): void {
 }
 
 /**
- * Watch for URL changes (SPA navigation).
+ * Watch for URL changes (SPA navigation) using popstate + polling.
+ * Much cheaper than a body MutationObserver.
  */
 export function watchUrlChanges(onUrlChange: (newUrl: string) => void): () => void {
   let lastUrl = window.location.href;
 
-  const urlObserver = new MutationObserver(() => {
+  const check = () => {
     if (window.location.href !== lastUrl) {
       lastUrl = window.location.href;
       onUrlChange(lastUrl);
     }
-  });
+  };
 
-  urlObserver.observe(document.body, { childList: true, subtree: true });
-  return () => urlObserver.disconnect();
+  // popstate catches back/forward navigation
+  window.addEventListener("popstate", check);
+
+  // Polling catches pushState/replaceState (no native event for those)
+  const interval = setInterval(check, 1000);
+
+  return () => {
+    window.removeEventListener("popstate", check);
+    clearInterval(interval);
+  };
 }

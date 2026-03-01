@@ -19,12 +19,11 @@ import type {
 export default defineContentScript({
   matches: [
     "https://boards.greenhouse.io/*",
-    "https://*.greenhouse.io/*",
+    "https://job-boards.greenhouse.io/*",
     "https://jobs.lever.co/*",
     "https://apply.lever.co/*",
     "https://*.myworkdayjobs.com/*",
-    "https://*.wd1.myworkdayjobs.com/*",
-    "https://*.wd5.myworkdayjobs.com/*",
+    "https://*.myworkdaysite.com/*",
     "https://*.icims.com/*",
     "https://*.ashbyhq.com/*",
     "https://*.smartrecruiters.com/*",
@@ -40,6 +39,7 @@ export default defineContentScript({
   allFrames: false,
 
   main() {
+    try {
     console.log("[Vetidia] Content script loaded on:", window.location.href);
 
     const platform = detectATS(window.location.href, document);
@@ -78,6 +78,17 @@ export default defineContentScript({
       startPageObserver(() => {
         if (overlayActive && platform) rescanFields(platform);
       }, document.body, 800);
+    }
+
+    // LinkedIn Easy Apply — modal appears dynamically after user clicks "Easy Apply" button
+    if (platform === "linkedin" && !isApp) {
+      const linkedinObserver = new MutationObserver(() => {
+        if (document.querySelector(".jobs-easy-apply-modal, .jobs-easy-apply-content")) {
+          linkedinObserver.disconnect();
+          initWidget("linkedin");
+        }
+      });
+      linkedinObserver.observe(document.body, { childList: true, subtree: true });
     }
 
     function cleanup() {
@@ -178,10 +189,12 @@ export default defineContentScript({
         }
       }
 
-      // Tier 2: Semantic match from saved answers for all unmatched fields
+      // Tier 2: Semantic match from saved answers (batched, max 5 concurrent)
       if (unmatchedFields.length > 0) {
-        const tier2Results = await Promise.allSettled(
-          unmatchedFields.slice(0, 30).map((nf) => tier2Match(nf)),
+        const tier2Results = await batchedPromises(
+          unmatchedFields.slice(0, 30),
+          (nf) => tier2Match(nf),
+          5,
         );
         for (const result of tier2Results) {
           if (result.status === "fulfilled" && result.value) {
@@ -190,13 +203,15 @@ export default defineContentScript({
         }
       }
 
-      // Tier 3: AI generation for remaining unmatched textarea/text fields
+      // Tier 3: AI generation for remaining unmatched textarea/text fields (batched, max 3 concurrent)
       const stillUnmatched = unmatchedFields.filter(
         (nf) => !fillResults.has(nf.selector) && nf.label.length >= 8,
       );
       if (stillUnmatched.length > 0) {
-        const tier3Results = await Promise.allSettled(
-          stillUnmatched.slice(0, 10).map((nf) => tier3Generate(nf, jobContext)),
+        const tier3Results = await batchedPromises(
+          stillUnmatched.slice(0, 10),
+          (nf) => tier3Generate(nf, jobContext),
+          3,
         );
         for (const result of tier3Results) {
           if (result.status === "fulfilled" && result.value) {
@@ -598,13 +613,28 @@ export default defineContentScript({
         payload: { platform, url: window.location.href },
       });
     }
+    } catch (err) {
+      console.error("[Vetidia] Content script initialization failed:", err);
+      // Fallback: listen for manual init trigger from side panel
+      try {
+        chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+          if (msg.type === "RESCAN_FIELDS" || msg.type === "PANEL_FILL_FIELDS") {
+            sendResponse({ error: "Content script failed to initialize. Try reloading the page." });
+          }
+          return true;
+        });
+      } catch { /* Extension context may be invalidated */ }
+    }
   },
 });
 
 function getProfileValue(profile: UserProfile, key: string): string | null {
   if (key.startsWith("_vault_")) return null; // Vault values are handled differently
   const val = (profile as Record<string, unknown>)[key];
-  if (val && typeof val === "string") return val;
+  if (typeof val === "string" && val.trim()) return val;
+  if (typeof val === "number") return String(val);
+  if (typeof val === "boolean") return val ? "Yes" : "No";
+  if (Array.isArray(val) && val.length > 0) return val.join(", ");
   return null;
 }
 
@@ -778,4 +808,22 @@ function extractJobContext(doc: Document, ats: string): string {
   }
 
   return parts.join("\n");
+}
+
+/**
+ * Run promises with a concurrency limit, returning PromiseSettledResult[].
+ * Prevents 30+ simultaneous edge function calls.
+ */
+async function batchedPromises<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  concurrency: number,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.allSettled(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
 }

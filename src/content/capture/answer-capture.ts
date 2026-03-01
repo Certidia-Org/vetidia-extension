@@ -21,9 +21,15 @@ export function setupFormSubmitCapture(
   }
 
   // 2. Submit button click (for SPA forms that don't use native submit)
-  const submitBtns = document.querySelectorAll<HTMLButtonElement>(
-    'button[type="submit"], input[type="submit"], button:has(> span:contains("Submit")), button:has(> span:contains("Apply"))'
+  const allButtons = document.querySelectorAll<HTMLButtonElement>(
+    'button[type="submit"], input[type="submit"], button, [role="button"]'
   );
+  const submitBtns = Array.from(allButtons).filter(btn => {
+    if (btn.getAttribute("type") === "submit") return true;
+    const text = btn.textContent?.trim().toLowerCase() ?? "";
+    return text.includes("submit") || text.includes("apply") ||
+           text.includes("send application") || text.includes("complete");
+  });
   for (const btn of submitBtns) {
     const handler = () => {
       // Small delay to let the form process
@@ -31,19 +37,6 @@ export function setupFormSubmitCapture(
     };
     btn.addEventListener("click", handler, { once: true });
     cleanup.push(() => btn.removeEventListener("click", handler));
-  }
-
-  // 3. Broader heuristic: watch for submit-like buttons
-  const allButtons = document.querySelectorAll<HTMLButtonElement>("button, [role='button']");
-  for (const btn of allButtons) {
-    const text = btn.textContent?.toLowerCase().trim() ?? "";
-    if (/(submit|apply|send|finish|complete|next|continue)/i.test(text)) {
-      const handler = () => {
-        setTimeout(() => captureOnSubmit(fillResults, platform), 500);
-      };
-      btn.addEventListener("click", handler, { once: true });
-      cleanup.push(() => btn.removeEventListener("click", handler));
-    }
   }
 
   // Return cleanup function
