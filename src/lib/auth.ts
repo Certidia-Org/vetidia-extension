@@ -19,7 +19,10 @@ export async function signInWithGoogle(): Promise<{
       };
     }
 
-    const redirectUri = `https://${chrome.runtime.id}.chromiumapp.org`;
+    // Use the official Chrome Identity API to get the redirect URI
+    const redirectUri = chrome.identity.getRedirectURL();
+    console.log("[Vetidia] OAuth redirect URI (add this to Google Cloud Console):", redirectUri);
+    console.log("[Vetidia] Extension ID:", chrome.runtime.id);
 
     const authUrl = new URL("https://accounts.google.com/o/oauth2/auth");
     authUrl.searchParams.set("client_id", clientId);
@@ -73,9 +76,17 @@ export async function signInWithGoogle(): Promise<{
 
     return { success: true };
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    // If redirect_uri_mismatch, surface the URI to add
+    if (message.includes("redirect_uri_mismatch") || message.includes("invalid")) {
+      const uri = chrome.identity?.getRedirectURL?.() ?? `https://${chrome.runtime.id}.chromiumapp.org`;
+      console.error(
+        `[Vetidia] OAuth redirect_uri_mismatch. Add this URI to Google Cloud Console → OAuth client → Authorized redirect URIs:\n${uri}`
+      );
+    }
     return {
       success: false,
-      error: err instanceof Error ? err.message : "Unknown error",
+      error: message,
     };
   }
 }
