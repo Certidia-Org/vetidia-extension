@@ -32,6 +32,7 @@ export type MessageType =
   | "BACKFILL_EMBEDDINGS"
   | "ATS_PAGE_DETECTED"
   | "SCAN_STATUS"
+  | "TRACK_JOB"
   | "JOB_PAGE_DETECTED";
 
 export interface BaseMessage {
@@ -189,6 +190,17 @@ export interface ScanStatusMessage extends BaseMessage {
   };
 }
 
+export interface TrackJobMessage extends BaseMessage {
+  type: "TRACK_JOB";
+  payload: {
+    company: string;
+    jobTitle: string;
+    url: string;
+    atsPlatform: string;
+    appliedVia: "extension";
+  };
+}
+
 export interface FieldsScannedMessage extends BaseMessage {
   type: "FIELDS_SCANNED";
   payload: {
@@ -304,6 +316,7 @@ export type BackgroundMessage =
   | JobPageDetectedMessage
   | ATSPageDetectedMessage
   | ScanStatusMessage
+  | TrackJobMessage
   | FieldsScannedMessage
   | FillCompleteMessage
   | GetTabStateMessage

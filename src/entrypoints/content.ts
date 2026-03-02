@@ -407,6 +407,18 @@ export default defineContentScript({
             type: "SCAN_STATUS",
             payload: { status: "complete" },
           }).catch(() => {});
+
+          // Auto-track this job in the web app
+          chrome.runtime.sendMessage({
+            type: "TRACK_JOB",
+            payload: {
+              company: pageContext.company,
+              jobTitle: pageContext.jobTitle,
+              url: window.location.href,
+              atsPlatform: plat,
+              appliedVia: "extension",
+            },
+          }).catch(() => {});
         } catch (err) {
           console.error("[Vetidia] Field scan error:", err);
           chrome.runtime.sendMessage({

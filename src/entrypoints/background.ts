@@ -448,12 +448,39 @@ async function handleMessage(message: BackgroundMessage, senderTabId?: number) {
     }
 
     case "FIELDS_SCANNED": {
-      // Store fields in session storage
+      // Store fields in session storage — accumulate across pages for multi-page wizards
       if (senderTabId) {
         const tabKey = `tab_${senderTabId}`;
         const existing = await chrome.storage.session.get(tabKey);
+        const tabState = (existing[tabKey] as Record<string, unknown>) || {};
+        const prevPages = (tabState.pageHistory as Array<{ fields: unknown; filledAt: string }>) || [];
+        const currentPage = (tabState.currentPage as number) || 0;
+
+        // If fields changed (new page in wizard), archive previous page
+        const prevFields = tabState.fields as Record<string, unknown> | undefined;
+        const prevFieldCount = ((prevFields?.fields as unknown[]) || []).length;
+        const newFieldCount = ((message.payload as Record<string, unknown>).fields as unknown[])?.length || 0;
+        let updatedPages = prevPages;
+        let pageNum = currentPage;
+
+        if (prevFieldCount > 0 && newFieldCount > 0 && prevFieldCount !== newFieldCount) {
+          // Different fields = new page in wizard
+          updatedPages = [...prevPages, { fields: prevFields, filledAt: new Date().toISOString() }];
+          pageNum = currentPage + 1;
+        }
+
+        const totalFieldsAcrossPages = updatedPages.reduce((sum, p) => {
+          return sum + (((p.fields as Record<string, unknown>)?.fields as unknown[]) || []).length;
+        }, 0) + newFieldCount;
+
         await chrome.storage.session.set({
-          [tabKey]: { ...((existing[tabKey] as object) || {}), fields: message.payload },
+          [tabKey]: {
+            ...tabState,
+            fields: message.payload,
+            pageHistory: updatedPages,
+            currentPage: pageNum,
+            totalFieldsAcrossPages,
+          },
         });
       }
       chrome.runtime.sendMessage({ type: "FIELDS_SCANNED", payload: message.payload }).catch(() => {});
@@ -480,6 +507,41 @@ async function handleMessage(message: BackgroundMessage, senderTabId?: number) {
         payload: message.payload,
       }).catch(() => {});
       return { success: true };
+    }
+
+    case "TRACK_JOB": {
+      const user = await getCurrentUser();
+      if (!user) return { success: false, error: "Not authenticated" };
+      const supabase = getSupabase();
+      const payload = (message as { payload: { company: string; jobTitle: string; url: string; atsPlatform: string } }).payload;
+
+      // Upsert job by URL to avoid duplicates
+      const { data: existing } = await supabase
+        .from("jobs")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("url", payload.url)
+        .maybeSingle();
+
+      if (existing) {
+        return { success: true, jobId: existing.id, existed: true };
+      }
+
+      const { data: newJob, error } = await supabase
+        .from("jobs")
+        .insert({
+          user_id: user.id,
+          company: payload.company,
+          title: payload.jobTitle || "Unknown Position",
+          url: payload.url,
+          source: payload.atsPlatform,
+          status: "saved",
+        })
+        .select("id")
+        .single();
+
+      if (error) return { success: false, error: error.message };
+      return { success: true, jobId: newJob?.id, existed: false };
     }
 
     case "GET_TAB_STATE": {

@@ -358,6 +358,28 @@ export default function SidePanel() {
     [selectedResume, selectedCover, resumes, coverLetters],
   );
 
+  const handleFillSingle = useCallback(async (field: FillField) => {
+    if (!field.value && field.checked === undefined) return;
+    try {
+      await chrome.runtime.sendMessage({
+        type: "PANEL_FILL_FIELDS",
+        payload: {
+          fields: [{
+            selector: field.selector || field.id,
+            value: field.value,
+            fieldType: field.fieldType,
+            checked: field.checked,
+            radioGroupName: field.radioGroupName,
+          }],
+        },
+      });
+      // Mark field as filled in local state
+      setFields((prev) =>
+        prev.map((f) => f.id === field.id ? { ...f, status: "ready" as const } : f),
+      );
+    } catch {}
+  }, []);
+
   // ═══════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════
@@ -452,7 +474,39 @@ export default function SidePanel() {
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
 
         {/* STATE 1: Not on ATS page */}
-        {!job && (
+        {!job && !user && (
+          <div style={{
+            display: "flex", flexDirection: "column", alignItems: "center",
+            justifyContent: "center", padding: "40px 24px", textAlign: "center",
+          }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: 12,
+              background: `linear-gradient(135deg, ${EM}, oklch(0.6 0.14 162))`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 22, fontWeight: 700, color: "#000", marginBottom: 16,
+            }}>V</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: TX, marginBottom: 6 }}>Welcome to Vetidia</div>
+            <div style={{ fontSize: 11, color: TX3, lineHeight: 1.6, maxWidth: 240, marginBottom: 20 }}>
+              Auto-fill job applications on Greenhouse, Lever, Workday, Ashby, and 10+ ATS platforms.
+            </div>
+            <button
+              onClick={handleSignIn}
+              disabled={signingIn}
+              style={{
+                width: "100%", maxWidth: 220, padding: "10px 0", borderRadius: 7, border: "none",
+                background: EM, color: "#000", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                marginBottom: 12,
+              }}
+            >
+              {signingIn ? "Signing in..." : "Sign in with Google"}
+            </button>
+            <div style={{ fontSize: 10, color: TX4, lineHeight: 1.5 }}>
+              Then navigate to a job application to get started.
+            </div>
+          </div>
+        )}
+
+        {!job && user && (
           <EmptyState
             icon="🔍"
             title="No application detected"
@@ -571,6 +625,7 @@ export default function SidePanel() {
                 defaultExpanded={true}
                 color={TX4}
                 onEdit={handleFieldEdit}
+                onFillSingle={handleFillSingle}
               />
             )}
 
@@ -582,6 +637,7 @@ export default function SidePanel() {
                 defaultExpanded={true}
                 color={AMBER}
                 onEdit={handleFieldEdit}
+                onFillSingle={handleFillSingle}
               />
             )}
 
@@ -593,6 +649,7 @@ export default function SidePanel() {
                 defaultExpanded={false}
                 color={EM}
                 onEdit={handleFieldEdit}
+                onFillSingle={handleFillSingle}
               />
             )}
           </div>
@@ -708,14 +765,30 @@ const pillBtn: CSSProperties = {
 function JobHeader({ job }: { job: JobDetected }) {
   return (
     <div style={{ marginBottom: 4 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: TX, lineHeight: 1.3 }}>
-        {job.company}
-      </div>
-      {job.jobTitle && (
-        <div style={{ fontSize: 11, color: TX2, marginTop: 2 }}>
-          {job.jobTitle}
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: TX, lineHeight: 1.3 }}>
+            {job.company}
+          </div>
+          {job.jobTitle && (
+            <div style={{ fontSize: 11, color: TX2, marginTop: 2 }}>
+              {job.jobTitle}
+            </div>
+          )}
         </div>
-      )}
+        <a
+          href={`https://vetidia.app/jobs?url=${encodeURIComponent(job.url)}`}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            fontSize: 9, color: EM, textDecoration: "none", padding: "3px 6px",
+            borderRadius: 4, border: `1px solid color-mix(in srgb, ${EM} 20%, transparent)`,
+            whiteSpace: "nowrap",
+          }}
+        >
+          Open in Vetidia ↗
+        </a>
+      </div>
     </div>
   );
 }
@@ -797,13 +870,14 @@ function FilePickerRow({
 }
 
 function FieldSection({
-  title, fields, defaultExpanded, color, onEdit,
+  title, fields, defaultExpanded, color, onEdit, onFillSingle,
 }: {
   title: string;
   fields: FillField[];
   defaultExpanded: boolean;
   color: string;
   onEdit: (id: string, value: string, checked?: boolean) => void;
+  onFillSingle: (field: FillField) => void;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -855,7 +929,7 @@ function FieldSection({
                 </div>
               )}
               {sectionFields.map((field) => (
-                <FieldRow key={field.id} field={field} onEdit={onEdit} />
+                <FieldRow key={field.id} field={field} onEdit={onEdit} onFillSingle={onFillSingle} />
               ))}
             </div>
           ))}
@@ -866,13 +940,15 @@ function FieldSection({
 }
 
 function FieldRow({
-  field, onEdit,
+  field, onEdit, onFillSingle,
 }: {
   field: FillField;
   onEdit: (id: string, value: string, checked?: boolean) => void;
+  onFillSingle: (field: FillField) => void;
 }) {
   const statusColor = field.status === "ready" ? EM : field.status === "suggested" ? AMBER : TX4;
   const statusIcon = field.status === "ready" ? "✓" : field.status === "suggested" ? "≈" : "·";
+  const canFill = !!(field.value || field.checked !== undefined);
 
   const inputStyle: CSSProperties = {
     width: "100%", background: "rgba(255,255,255,0.04)", border: `1px solid ${BRD}`,
@@ -964,6 +1040,19 @@ function FieldRow({
           {field.label}
           {field.required && <span style={{ color: RED, marginLeft: 2 }}>*</span>}
         </span>
+        {canFill && (
+          <button
+            onClick={() => onFillSingle(field)}
+            style={{
+              padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 600,
+              fontFamily: SANS, cursor: "pointer", background: "rgba(255,255,255,0.04)",
+              color: EM, border: `1px solid color-mix(in srgb, ${EM} 25%, transparent)`,
+              transition: "all 0.15s", lineHeight: 1.3,
+            }}
+          >
+            Fill
+          </button>
+        )}
       </div>
       {renderControl()}
     </div>
