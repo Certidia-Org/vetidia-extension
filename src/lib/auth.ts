@@ -21,13 +21,12 @@ export async function signInWithGoogle(): Promise<{
 
     // Use the official Chrome Identity API to get the redirect URI
     const redirectUri = chrome.identity.getRedirectURL();
-    console.log("[Vetidia] OAuth redirect URI (add this to Google Cloud Console):", redirectUri);
+    console.log("[Vetidia] OAuth redirect URI (add this EXACT string to Google Cloud Console):", redirectUri);
     console.log("[Vetidia] Extension ID:", chrome.runtime.id);
 
     const authUrl = new URL("https://accounts.google.com/o/oauth2/auth");
     authUrl.searchParams.set("client_id", clientId);
     authUrl.searchParams.set("response_type", "id_token");
-    authUrl.searchParams.set("access_type", "offline");
     authUrl.searchParams.set("redirect_uri", redirectUri);
     authUrl.searchParams.set(
       "scope",
