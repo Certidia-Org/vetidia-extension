@@ -23,6 +23,6 @@ export function getATSHandler(platform: ATSPlatform): ATSHandler | null {
   return handlers[platform] ?? null;
 }
 
-export { detectATS, isApplicationPage } from "./detector";
+export { detectATS, getATSDisplayName, extractPageContext, countFormFields } from "./detector";
 export type { ATSPlatform } from "./detector";
 export type { ATSHandler } from "./base";

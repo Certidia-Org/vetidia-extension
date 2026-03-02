@@ -105,7 +105,7 @@ async function handleMessage(message: BackgroundMessage, senderTabId?: number) {
       return { success: true };
     }
 
-    case "ATS_PAGE_DETECTED" as string:
+    case "ATS_PAGE_DETECTED":
     case "JOB_PAGE_DETECTED": {
       if (senderTabId) {
         // Set badge icon
@@ -470,6 +470,15 @@ async function handleMessage(message: BackgroundMessage, senderTabId?: number) {
         });
       }
       chrome.runtime.sendMessage({ type: "FILL_COMPLETE", payload: message.payload }).catch(() => {});
+      return { success: true };
+    }
+
+    case "SCAN_STATUS": {
+      // Forward scan progress to side panel
+      chrome.runtime.sendMessage({
+        type: "SCAN_STATUS",
+        payload: message.payload,
+      }).catch(() => {});
       return { success: true };
     }
 

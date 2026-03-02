@@ -29,7 +29,10 @@ export type MessageType =
   | "DETECT_ATS"
   | "FILL_FIELDS"
   | "GET_FILL_PREVIEW"
-  | "BACKFILL_EMBEDDINGS";
+  | "BACKFILL_EMBEDDINGS"
+  | "ATS_PAGE_DETECTED"
+  | "SCAN_STATUS"
+  | "JOB_PAGE_DETECTED";
 
 export interface BaseMessage {
   type: MessageType;
@@ -155,7 +158,35 @@ export interface OpenSidePanelMessage extends BaseMessage {
 
 export interface JobPageDetectedMessage extends BaseMessage {
   type: "JOB_PAGE_DETECTED";
-  payload: { ats: string; company: string; url: string; fieldCount: number };
+  payload: {
+    ats: string;
+    atsDisplayName?: string;
+    company: string;
+    jobTitle?: string;
+    url: string;
+    fieldCount: number;
+  };
+}
+
+export interface ATSPageDetectedMessage extends BaseMessage {
+  type: "ATS_PAGE_DETECTED";
+  payload: {
+    ats: string;
+    atsDisplayName?: string;
+    company: string;
+    jobTitle?: string;
+    url: string;
+    fieldCount: number;
+  };
+}
+
+export interface ScanStatusMessage extends BaseMessage {
+  type: "SCAN_STATUS";
+  payload: {
+    status: "idle" | "scanning" | "needs_auth" | "complete" | "no_fields" | "error";
+    step?: string;
+    error?: string;
+  };
 }
 
 export interface FieldsScannedMessage extends BaseMessage {
@@ -271,6 +302,8 @@ export type BackgroundMessage =
   | GetFillHistoryMessage
   | OpenSidePanelMessage
   | JobPageDetectedMessage
+  | ATSPageDetectedMessage
+  | ScanStatusMessage
   | FieldsScannedMessage
   | FillCompleteMessage
   | GetTabStateMessage

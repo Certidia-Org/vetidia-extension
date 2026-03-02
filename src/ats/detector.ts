@@ -1,6 +1,9 @@
 /**
- * Detects which ATS platform the current page belongs to.
- * Returns null if the page is not a recognized ATS.
+ * Vetidia Extension — ATS Platform Detection
+ *
+ * Design philosophy: If you're on an ATS domain, activate. Period.
+ * False positives (showing on a job listing) are cheap.
+ * False negatives (not showing on an application) are fatal.
  */
 
 export type ATSPlatform =
@@ -21,27 +24,28 @@ export type ATSPlatform =
 
 interface ATSPattern {
   platform: ATSPlatform;
+  /** Display name shown in the side panel. */
+  displayName: string;
   /** URL substring matches (any match = detected). */
   urlPatterns: string[];
-  /** Optional: Check meta tags or DOM elements for additional confirmation. */
+  /** Optional DOM-based confirmation for platforms that need it (e.g. LinkedIn). */
   domCheck?: (doc: Document) => boolean;
 }
 
 const ATS_PATTERNS: ATSPattern[] = [
   {
     platform: "greenhouse",
-    urlPatterns: ["boards.greenhouse.io", "job-boards.greenhouse.io"],
-    domCheck: (doc) => {
-      const meta = doc.querySelector('meta[name="generator"]');
-      return meta?.getAttribute("content")?.includes("Greenhouse") ?? false;
-    },
+    displayName: "Greenhouse",
+    urlPatterns: ["greenhouse.io"],
   },
   {
     platform: "lever",
-    urlPatterns: ["jobs.lever.co"],
+    displayName: "Lever",
+    urlPatterns: ["lever.co"],
   },
   {
     platform: "workday",
+    displayName: "Workday",
     urlPatterns: [
       "myworkdayjobs.com",
       "myworkdaysite.com",
@@ -51,144 +55,142 @@ const ATS_PATTERNS: ATSPattern[] = [
   },
   {
     platform: "ashby",
+    displayName: "Ashby",
     urlPatterns: ["ashbyhq.com"],
   },
   {
     platform: "icims",
+    displayName: "iCIMS",
     urlPatterns: [".icims.com"],
   },
   {
     platform: "smartrecruiters",
+    displayName: "SmartRecruiters",
     urlPatterns: ["smartrecruiters.com"],
   },
   {
     platform: "linkedin",
+    displayName: "LinkedIn",
     urlPatterns: ["linkedin.com/jobs"],
-    domCheck: (doc) => doc.querySelector(".jobs-easy-apply-modal") !== null,
+    // LinkedIn needs DOM check because Easy Apply is a modal overlay
+    domCheck: (doc) =>
+      doc.querySelector(".jobs-easy-apply-modal, .jobs-easy-apply-content") !== null,
   },
   {
     platform: "taleo",
+    displayName: "Taleo",
     urlPatterns: [".taleo.net"],
   },
   {
     platform: "breezy",
+    displayName: "Breezy HR",
     urlPatterns: [".breezy.hr"],
   },
   {
     platform: "bamboohr",
+    displayName: "BambooHR",
     urlPatterns: [".bamboohr.com"],
   },
   {
     platform: "jazzhr",
+    displayName: "JazzHR",
     urlPatterns: [".jazz.co", "app.jazz.co"],
   },
   {
     platform: "jobvite",
+    displayName: "Jobvite",
     urlPatterns: [".jobvite.com"],
   },
   {
     platform: "recruitee",
+    displayName: "Recruitee",
     urlPatterns: [".recruitee.com"],
   },
   {
     platform: "workable",
+    displayName: "Workable",
     urlPatterns: [".workable.com"],
   },
 ];
 
 /**
  * Detect the ATS platform from the current URL and optionally DOM.
+ * Returns null if the page is not a recognized ATS.
  */
-export function detectATS(
-  url: string,
-  doc?: Document,
-): ATSPlatform | null {
+export function detectATS(url: string, doc?: Document): ATSPlatform | null {
+  const lower = url.toLowerCase();
   for (const pattern of ATS_PATTERNS) {
-    // Check URL patterns first (fast path)
-    const urlMatch = pattern.urlPatterns.some((p) =>
-      url.toLowerCase().includes(p),
-    );
-    if (urlMatch) return pattern.platform;
-
-    // Check DOM-based detection as fallback
-    if (doc && pattern.domCheck?.(doc)) return pattern.platform;
+    if (pattern.urlPatterns.some((p) => lower.includes(p))) {
+      return pattern.platform;
+    }
+    if (doc && pattern.domCheck?.(doc)) {
+      return pattern.platform;
+    }
   }
-
   return null;
 }
 
 /**
- * Check if the current page is likely an application form
- * (not just a job listing page).
+ * Get the display name for an ATS platform.
  */
-export function isApplicationPage(url: string, doc: Document): boolean {
-  const lowerUrl = url.toLowerCase();
-
-  // Generic URL path patterns that strongly indicate an application form
-  if (/\/(apply|application)(\/|$|\?|#)/.test(lowerUrl)) return true;
-
-  // ── Platform-specific URL checks (strict) ──
-
-  // Greenhouse: boards.greenhouse.io/company/jobs/ID#app is the application anchor
-  if (lowerUrl.includes("boards.greenhouse.io")) {
-    // The #app fragment or presence of application form
-    if (lowerUrl.includes("#app")) return true;
-    // Greenhouse embeds the form on the job page — check DOM
-    if (doc.querySelector("#application, #app_body, .application-form, form#application-form")) return true;
-    // Greenhouse job pages have embedded forms, accept if form has email field
-    return hasApplicationForm(doc);
-  }
-
-  // Lever: apply.lever.co is always an application; jobs.lever.co/company/id/apply
-  if (lowerUrl.includes("apply.lever.co")) return true;
-  if (lowerUrl.includes("jobs.lever.co") && lowerUrl.includes("/apply")) return true;
-  // Lever job pages embed the form at bottom
-  if (lowerUrl.includes("jobs.lever.co") && doc.querySelector(".application-page, .posting-apply")) return true;
-
-  // Workday: /apply path within myworkdayjobs.com
-  if (lowerUrl.includes("myworkdayjobs.com") && /\/(apply|login|create)/.test(lowerUrl)) return true;
-  if (lowerUrl.includes("myworkdayjobs.com") && doc.querySelector('[data-automation-id="jobApplicationPage"]')) return true;
-
-  // Ashby: /application path is the form
-  if (lowerUrl.includes("ashbyhq.com") && lowerUrl.includes("/application")) return true;
-  if (lowerUrl.includes("ashbyhq.com") && doc.querySelector('[class*="applicationForm"], form[class*="application"]')) return true;
-
-  // iCIMS: look for application form
-  if (lowerUrl.includes(".icims.com") && /\/apply|\/login/.test(lowerUrl)) return true;
-
-  // LinkedIn: Easy Apply modal (appears dynamically)
-  if (lowerUrl.includes("linkedin.com") && doc.querySelector(".jobs-easy-apply-modal, .jobs-easy-apply-content")) return true;
-
-  // SmartRecruiters: /apply or /application
-  if (lowerUrl.includes("smartrecruiters.com") && /\/apply|\/application/.test(lowerUrl)) return true;
-
-  // For remaining ATS platforms, use DOM-based form detection
-  if (lowerUrl.includes(".taleo.net") || lowerUrl.includes(".breezy.hr") ||
-      lowerUrl.includes(".bamboohr.com") || lowerUrl.includes(".jazz.co") ||
-      lowerUrl.includes(".jobvite.com") || lowerUrl.includes(".recruitee.com") ||
-      lowerUrl.includes(".workable.com")) {
-    return hasApplicationForm(doc);
-  }
-
-  // Final fallback: DOM-based form detection for unknown pages
-  return hasApplicationForm(doc);
+export function getATSDisplayName(platform: ATSPlatform): string {
+  return ATS_PATTERNS.find((p) => p.platform === platform)?.displayName ?? platform;
 }
 
-/** Check if the page has a form that looks like a job application. */
-function hasApplicationForm(doc: Document): boolean {
-  const forms = doc.querySelectorAll("form");
-  for (const form of forms) {
-    const inputs = form.querySelectorAll(
-      'input:not([type="hidden"]):not([type="search"]):not([type="submit"]):not([type="button"]), textarea, select'
-    );
-    if (inputs.length >= 3) {
-      const hasNameOrEmail = form.querySelector(
-        'input[name*="name" i], input[name*="email" i], input[type="email"], ' +
-        'input[autocomplete*="name"], input[autocomplete*="email"], ' +
-        'input[id*="name" i], input[id*="email" i]'
-      );
-      if (hasNameOrEmail) return true;
+/**
+ * Extract basic job context from the page (no auth required).
+ * Used to populate the side panel header immediately.
+ */
+export function extractPageContext(url: string, doc: Document): {
+  company: string;
+  jobTitle: string;
+} {
+  // Try to get company from common patterns
+  let company = "";
+  let jobTitle = "";
+
+  // Greenhouse: title is usually "Job Title at Company"
+  const title = doc.title || "";
+  const atMatch = title.match(/^(.+?)\s+(?:at|@|-|–|—|·|\|)\s+(.+?)(?:\s*[-–—|·]|$)/);
+  if (atMatch) {
+    jobTitle = atMatch[1].trim();
+    company = atMatch[2].trim();
+  } else {
+    // Fallback: use the full title, cleaned up
+    company = title
+      .replace(/\s*[-–—|·]\s*(?:Apply|Application|Job|Career|Hiring|Recruit).*$/i, "")
+      .replace(/\s*[-–—|·]\s*(?:Greenhouse|Lever|Workday|Ashby|iCIMS|SmartRecruiters).*$/i, "")
+      .trim();
+  }
+
+  // Try to extract job title from heading elements
+  if (!jobTitle) {
+    const h1 = doc.querySelector("h1");
+    if (h1?.textContent) {
+      jobTitle = h1.textContent.trim().slice(0, 100);
     }
   }
-  return false;
+
+  return { company: company || "Unknown Company", jobTitle };
+}
+
+/**
+ * Count visible form fields on the page (no auth required).
+ * Gives the user an immediate sense of what was detected.
+ */
+export function countFormFields(doc: Document): number {
+  const inputs = doc.querySelectorAll(
+    'input:not([type="hidden"]):not([type="search"]):not([type="submit"]):not([type="button"]), textarea, select',
+  );
+  let count = 0;
+  for (const el of inputs) {
+    const htmlEl = el as HTMLElement;
+    if (htmlEl.offsetParent !== null || htmlEl.style.position === "fixed") {
+      const style = getComputedStyle(htmlEl);
+      if (style.display !== "none" && style.visibility !== "hidden") {
+        count++;
+      }
+    }
+  }
+  return count;
 }
