@@ -30,7 +30,7 @@ export async function tier2Match(
     const isAutoFill = similarity >= AUTO_FILL_THRESHOLD && match.autoFillEnabled;
 
     return {
-      fieldId: field.id,
+      fieldId: field.selector,
       label: field.label,
       selector: field.selector,
       tier: 2,

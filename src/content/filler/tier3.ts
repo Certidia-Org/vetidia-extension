@@ -39,7 +39,7 @@ export async function tier3Generate(
     if (!answer || typeof answer !== "string" || answer.length < 2) return null;
 
     return {
-      fieldId: field.id,
+      fieldId: field.selector,
       label: field.label,
       selector: field.selector,
       tier: 3,

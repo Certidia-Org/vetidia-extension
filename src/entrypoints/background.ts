@@ -456,22 +456,28 @@ async function handleMessage(message: BackgroundMessage, senderTabId?: number) {
         const prevPages = (tabState.pageHistory as Array<{ fields: unknown; filledAt: string }>) || [];
         const currentPage = (tabState.currentPage as number) || 0;
 
-        // If fields changed (new page in wizard), archive previous page
+        // Detect wizard page change: only if new fields are completely different (not progressive loading)
         const prevFields = tabState.fields as Record<string, unknown> | undefined;
-        const prevFieldCount = ((prevFields?.fields as unknown[]) || []).length;
-        const newFieldCount = ((message.payload as Record<string, unknown>).fields as unknown[])?.length || 0;
+        const prevFieldArr = ((prevFields?.fields as unknown[]) || []) as Array<{ selector?: string }>;
+        const newFieldArr = ((message.payload as Record<string, unknown>).fields as unknown[]) as Array<{ selector?: string }>;
         let updatedPages = prevPages;
         let pageNum = currentPage;
 
-        if (prevFieldCount > 0 && newFieldCount > 0 && prevFieldCount !== newFieldCount) {
-          // Different fields = new page in wizard
-          updatedPages = [...prevPages, { fields: prevFields, filledAt: new Date().toISOString() }];
-          pageNum = currentPage + 1;
+        if (prevFieldArr.length > 0 && newFieldArr.length > 0) {
+          // Check if selectors are entirely different (real page change), not just growing (progressive load)
+          const prevSelectors = new Set(prevFieldArr.map((f) => f.selector).filter(Boolean));
+          const newSelectors = newFieldArr.map((f) => f.selector).filter(Boolean);
+          const overlap = newSelectors.filter((s) => prevSelectors.has(s)).length;
+          // If less than 30% overlap, it's a real page change
+          if (overlap < prevSelectors.size * 0.3 && prevSelectors.size > 0) {
+            updatedPages = [...prevPages, { fields: prevFields, filledAt: new Date().toISOString() }];
+            pageNum = currentPage + 1;
+          }
         }
 
         const totalFieldsAcrossPages = updatedPages.reduce((sum, p) => {
           return sum + (((p.fields as Record<string, unknown>)?.fields as unknown[]) || []).length;
-        }, 0) + newFieldCount;
+        }, 0) + newFieldArr.length;
 
         await chrome.storage.session.set({
           [tabKey]: {
