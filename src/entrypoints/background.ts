@@ -56,19 +56,9 @@ export default defineBackground(() => {
     }
   });
 
+  // Tab state cleanup on close
   chrome.tabs.onRemoved.addListener((tabId) => {
     chrome.storage.session.remove(`tab_${tabId}`).catch(() => {});
-  });
-
-  // Notify side panel when user switches tabs so it can restore per-tab state
-  chrome.tabs.onActivated.addListener(async (activeInfo) => {
-    const tabKey = `tab_${activeInfo.tabId}`;
-    const stored = await chrome.storage.session.get(tabKey).catch(() => ({}));
-    const tabState = stored[tabKey] ?? null;
-    chrome.runtime.sendMessage({
-      type: "TAB_ACTIVATED",
-      payload: { tabId: activeInfo.tabId, state: tabState },
-    }).catch(() => {});
   });
 
   supabase.auth.onAuthStateChange((event, _session) => {

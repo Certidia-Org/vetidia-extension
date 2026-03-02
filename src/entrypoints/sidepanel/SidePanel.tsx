@@ -230,6 +230,60 @@ export default function SidePanel() {
     return () => { m = false; };
   }, [parseFields]);
 
+  // ── Tab switch: actively pull state when user switches tabs ──
+  const restoreTabState = useCallback(async () => {
+    try {
+      const ts = await chrome.runtime.sendMessage({ type: "GET_TAB_STATE" });
+      if (ts?.state?.job) {
+        setJob(ts.state.job as JobDetected);
+        if (ts.state.fields) {
+          const fs = ts.state.fields as Record<string, unknown>;
+          setFields(parseFields((fs.fields as unknown[]) || []));
+          setScanStatus({ status: "complete" });
+        } else {
+          setFields([]);
+          setScanStatus({ status: "idle" });
+        }
+        if (ts.state.fillResult) {
+          const fr = ts.state.fillResult as { filledCount: number; total: number };
+          setFillResult({ filled: fr.filledCount, total: fr.total });
+        } else {
+          setFillResult(null);
+        }
+      } else {
+        // No stored state — check if the active tab is an ATS page anyway
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const atsPatterns = ["greenhouse.io","lever.co","myworkdayjobs.com","ashbyhq.com","icims.com","smartrecruiters.com","linkedin.com/jobs","taleo.net","breezy.hr","bamboohr.com","jazz.co","jobvite.com","recruitee.com","workable.com"];
+        if (tab?.url && atsPatterns.some((p) => tab.url!.includes(p)) && tab.id) {
+          // ATS page with no stored state — trigger content script
+          setJob(null); setFields([]); setFillResult(null);
+          setScanStatus({ status: "scanning", step: "Detecting fields..." });
+          try { await chrome.tabs.sendMessage(tab.id, { type: "RESCAN_FIELDS" }); }
+          catch {
+            try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-scripts/content.js"] }); } catch {}
+          }
+        } else {
+          setJob(null); setFields([]); setScanStatus({ status: "idle" }); setFillResult(null);
+        }
+      }
+      setStatusFilter("all");
+    } catch {}
+  }, [parseFields]);
+
+  useEffect(() => {
+    const onActivated = () => { restoreTabState(); };
+    chrome.tabs.onActivated.addListener(onActivated);
+    // Also handle window focus changes (user switches between windows)
+    const onFocusChanged = (windowId: number) => {
+      if (windowId !== chrome.windows.WINDOW_ID_NONE) restoreTabState();
+    };
+    chrome.windows.onFocusChanged.addListener(onFocusChanged);
+    return () => {
+      chrome.tabs.onActivated.removeListener(onActivated);
+      chrome.windows.onFocusChanged.removeListener(onFocusChanged);
+    };
+  }, [restoreTabState]);
+
   useEffect(() => {
     const listener = (msg: Record<string, unknown>) => {
       if (msg.type === "JOB_PAGE_DETECTED") { setJob(msg.payload as JobDetected); setFillResult(null); setFields([]); setScanStatus({ status: "idle" }); setStatusFilter("all"); }
@@ -256,33 +310,6 @@ export default function SidePanel() {
         // Don't set complete here — wait for SCAN_STATUS: complete
       }
       if (msg.type === "FILL_COMPLETE") { const p = msg.payload as { filledCount: number; total: number }; setFillResult({ filled: p.filledCount, total: p.total }); setFilling(false); }
-      if (msg.type === "TAB_ACTIVATED") {
-        const p = msg.payload as { tabId: number; state: Record<string, unknown> | null };
-        if (p.state?.job) {
-          setJob(p.state.job as JobDetected);
-          if (p.state.fields) {
-            const fs = p.state.fields as Record<string, unknown>;
-            setFields(parseFields((fs.fields as unknown[]) || []));
-            setScanStatus({ status: "complete" });
-          } else {
-            setFields([]);
-            setScanStatus({ status: "idle" });
-          }
-          if (p.state.fillResult) {
-            const fr = p.state.fillResult as { filledCount: number; total: number };
-            setFillResult({ filled: fr.filledCount, total: fr.total });
-          } else {
-            setFillResult(null);
-          }
-        } else {
-          // Non-ATS tab — reset to empty state
-          setJob(null);
-          setFields([]);
-          setScanStatus({ status: "idle" });
-          setFillResult(null);
-        }
-        setStatusFilter("all");
-      }
     };
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);
