@@ -234,7 +234,27 @@ export default function SidePanel() {
     const listener = (msg: Record<string, unknown>) => {
       if (msg.type === "JOB_PAGE_DETECTED") { setJob(msg.payload as JobDetected); setFillResult(null); setFields([]); setScanStatus({ status: "idle" }); setStatusFilter("all"); }
       if (msg.type === "SCAN_STATUS") setScanStatus(msg.payload as ScanStatus);
-      if (msg.type === "FIELDS_SCANNED") { const f = msg.payload as Record<string, unknown>; setFields(parseFields((f.fields as unknown[]) || [])); setScanStatus({ status: "complete" }); }
+      if (msg.type === "FIELDS_SCANNED") {
+        const f = msg.payload as Record<string, unknown>;
+        const incoming = parseFields((f.fields as unknown[]) || []);
+        // Merge: update existing fields with new data, add new ones, preserve user edits
+        setFields((prev) => {
+          if (prev.length === 0) return incoming;
+          const prevMap = new Map(prev.map((p) => [p.id, p]));
+          const merged = incoming.map((inc) => {
+            const existing = prevMap.get(inc.id);
+            // If user has edited this field (it has a value the incoming doesn't), keep their edit
+            if (existing && existing.value && !inc.value) return existing;
+            // If incoming has a better value (from T2/T3), use it but keep user's status if they edited
+            if (existing && existing.value && inc.value && existing.value !== inc.value) {
+              return { ...inc, status: inc.status };
+            }
+            return inc;
+          });
+          return merged;
+        });
+        // Don't set complete here — wait for SCAN_STATUS: complete
+      }
       if (msg.type === "FILL_COMPLETE") { const p = msg.payload as { filledCount: number; total: number }; setFillResult({ filled: p.filledCount, total: p.total }); setFilling(false); }
     };
     chrome.runtime.onMessage.addListener(listener);
@@ -301,6 +321,10 @@ export default function SidePanel() {
 
   return (
     <div style={{ width: "100%", height: "100vh", background: BASE, color: TX, fontFamily: SANS, display: "flex", flexDirection: "column", overflow: "hidden", fontSize: 12, lineHeight: 1.5 }}>
+      <style>{`
+        @keyframes vetidiaSpin { to { transform: rotate(360deg); } }
+        @keyframes vetidiaShimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+      `}</style>
 
       {/* ── Header ── */}
       <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: `1px solid ${BRD}`, flexShrink: 0 }}>
@@ -352,7 +376,7 @@ export default function SidePanel() {
           </div>
         )}
 
-        {job && scanStatus.status === "scanning" && (
+        {job && scanStatus.status === "scanning" && !hasFields && (
           <div style={{ padding: 14 }}><Card><Spinner step={scanStatus.step || "Scanning..."} /></Card></div>
         )}
 
@@ -360,9 +384,17 @@ export default function SidePanel() {
           <div style={{ padding: 14 }}><Card><div style={{ fontSize: 12, color: AMBER, fontWeight: 600, marginBottom: 4 }}>Profile not found</div><div style={{ fontSize: 11, color: TX3, lineHeight: 1.5, marginBottom: 10 }}>Set up your profile on vetidia.app first.</div><Pill onClick={handleRescan}>Retry</Pill></Card></div>
         )}
 
-        {/* ── FIELDS READY ── */}
+        {/* ── FIELDS READY (shown even while still scanning for T2/T3) ── */}
         {job && hasFields && !fillResult && (
           <>
+            {/* Inline scanning indicator when fields already visible */}
+            {scanStatus.status === "scanning" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderBottom: `1px solid ${BRD}`, background: "rgba(255,255,255,0.015)" }}>
+                <div style={{ width: 12, height: 12, border: `1.5px solid ${BRD_L}`, borderTopColor: EM, borderRadius: "50%", animation: "vetidiaSpin 0.8s linear infinite", flexShrink: 0 }} />
+                <span style={{ fontSize: 10, color: TX3 }}>{scanStatus.step || "Matching fields..."}</span>
+              </div>
+            )}
+
             {/* Filter bar */}
             <div style={{ display: "flex", gap: 4, padding: "8px 14px", borderBottom: `1px solid ${BRD}`, flexShrink: 0 }}>
               <FilterPill color={EM} count={readyFields.length} label="Ready" active={statusFilter === "ready"} onClick={() => toggleFilter("ready")} />
@@ -380,12 +412,12 @@ export default function SidePanel() {
 
             {/* Required manual fields (always expanded) */}
             {(statusFilter === "all" || statusFilter === "manual") && manualRequired.length > 0 && (
-              <FieldGroup title={`Required (${manualRequired.length})`} color={RED} defaultOpen={true} grouped={groupedManualReq} onEdit={handleFieldEdit} onBlur={handleFieldBlur} />
+              <FieldGroup title={`Required (${manualRequired.length})`} color={RED} defaultOpen={true} grouped={groupedManualReq} onEdit={handleFieldEdit} onBlur={handleFieldBlur} isScanning={scanStatus.status === "scanning"} />
             )}
 
             {/* Optional manual fields (collapsed when viewing all) */}
             {(statusFilter === "all" || statusFilter === "manual") && manualOptional.length > 0 && (
-              <FieldGroup title={`Optional (${manualOptional.length})`} color={TX4} defaultOpen={statusFilter === "manual"} grouped={groupedManualOpt} onEdit={handleFieldEdit} onBlur={handleFieldBlur} />
+              <FieldGroup title={`Optional (${manualOptional.length})`} color={TX4} defaultOpen={statusFilter === "manual"} grouped={groupedManualOpt} onEdit={handleFieldEdit} onBlur={handleFieldBlur} isScanning={scanStatus.status === "scanning"} />
             )}
 
             {/* Review fields */}
@@ -428,7 +460,7 @@ export default function SidePanel() {
             background: filling ? TX3 : EM, color: "#000", fontSize: 12, fontWeight: 600,
             fontFamily: SANS, cursor: filling ? "default" : "pointer",
             opacity: fillableFields.length === 0 ? 0.4 : 1, transition: "all 0.15s",
-          }}>{filling ? "Filling..." : `⚡ Fill ${fillableFields.length} Fields`}</button>
+          }}>{filling ? "Filling..." : `Fill ${fillableFields.length} Fields`}</button>
         </div>
       )}
     </div>
@@ -468,7 +500,10 @@ function EmptyState({ icon, title, subtitle }: { icon: string; title: string; su
 function Spinner({ step }: { step: string }) {
   return <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
     <div style={{ width: 18, height: 18, border: `2px solid ${BRD_L}`, borderTopColor: EM, borderRadius: "50%", animation: "vetidiaSpin 0.8s linear infinite", flexShrink: 0 }} />
-    <style>{`@keyframes vetidiaSpin { to { transform: rotate(360deg); } }`}</style>
+    <style>{`
+      @keyframes vetidiaSpin { to { transform: rotate(360deg); } }
+      @keyframes vetidiaShimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+    `}</style>
     <span style={{ fontSize: 11, color: TX2 }}>{step}</span>
   </div>;
 }
@@ -510,11 +545,12 @@ function FilePicker({ label, items, selected, onSelect, onUpload }: { label: str
 // FIELD GROUPS & ROWS
 // ═══════════════════════════════════════════
 
-function FieldGroup({ title, color, defaultOpen, grouped, onEdit, onBlur }: {
+function FieldGroup({ title, color, defaultOpen, grouped, onEdit, onBlur, isScanning }: {
   title: string; color: string; defaultOpen: boolean;
   grouped: ReturnType<typeof groupCheckboxFields>;
   onEdit: (id: string, value: string, checked?: boolean) => void;
   onBlur?: (id: string) => void;
+  isScanning?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   if (grouped.singles.length + grouped.groups.length === 0) return null;
@@ -536,7 +572,7 @@ function FieldGroup({ title, color, defaultOpen, grouped, onEdit, onBlur }: {
       {grouped.groups.map((g) => <CbGroup key={g.parentLabel} group={g} onEdit={onEdit} />)}
       {Object.entries(sectionMap).map(([sec, flds]) => <div key={sec}>
         {Object.keys(sectionMap).length > 1 && <div style={{ fontSize: 9, color: TX4, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "8px 4px 3px" }}>{sec}</div>}
-        {flds.map((f) => <FieldRow key={f.id} field={f} onEdit={onEdit} onBlur={onBlur} />)}
+        {flds.map((f) => <FieldRow key={f.id} field={f} onEdit={onEdit} onBlur={onBlur} isScanning={isScanning} />)}
       </div>)}
     </div>}
   </div>;
@@ -573,8 +609,11 @@ function CbGroup({ group, onEdit }: { group: CheckboxGroup; onEdit: (id: string,
 }
 
 /** Individual field row — no Fill button */
-function FieldRow({ field, onEdit, onBlur }: { field: FillField; onEdit: (id: string, value: string, checked?: boolean) => void; onBlur?: (id: string) => void }) {
+function FieldRow({ field, onEdit, onBlur, isScanning }: { field: FillField; onEdit: (id: string, value: string, checked?: boolean) => void; onBlur?: (id: string) => void; isScanning?: boolean }) {
   if (isFileUploadField(field)) return null;
+
+  // Show shimmer on empty manual fields while scan is in progress
+  const showShimmer = isScanning && field.status === "manual" && !field.value;
 
   const sc = field.status === "ready" ? EM : field.status === "suggested" ? AMBER : TX4;
   const si = field.status === "ready" ? "✓" : field.status === "suggested" ? "≈" : "·";
@@ -619,6 +658,13 @@ function FieldRow({ field, onEdit, onBlur }: { field: FillField; onEdit: (id: st
         {field.label}{field.required && <span style={{ color: RED, marginLeft: 2 }}>*</span>}
       </span>
     </div>
-    {ctrl()}
+    {showShimmer ? (
+      <div style={{
+        width: "100%", height: 28, borderRadius: 4,
+        background: `linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 75%)`,
+        backgroundSize: "200% 100%",
+        animation: "vetidiaShimmer 1.5s ease-in-out infinite",
+      }} />
+    ) : ctrl()}
   </div>;
 }

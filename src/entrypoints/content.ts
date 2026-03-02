@@ -291,6 +291,27 @@ export default defineContentScript({
             }
           }
 
+          // Add all unmatched as manual placeholders so the panel can show them immediately
+          for (const nf of unmatchedFields) {
+            if (!fillResults.has(nf.selector)) {
+              fillResults.set(nf.selector, {
+                fieldId: nf.selector,
+                label: nf.label,
+                selector: nf.selector,
+                tier: null as unknown as 1,
+                confidence: "none" as "low",
+                value: "",
+                profileKey: null as unknown as string,
+                autoFilled: false,
+                element: nf.element || document.body,
+                originalValue: "",
+              });
+            }
+          }
+
+          // ── Send Tier 1 results immediately so the panel can show ready fields ──
+          broadcastFieldsScanned(plat, fields, totalFieldCount);
+
           // Tier 2: Semantic match from answer vault (batched)
           if (unmatchedFields.length > 0) {
             chrome.runtime.sendMessage({
@@ -308,12 +329,15 @@ export default defineContentScript({
                 fillResults.set(result.value.fieldId, result.value);
               }
             }
+
+            // Send updated results after Tier 2
+            broadcastFieldsScanned(plat, fields, totalFieldCount);
           }
 
           // Tier 3: AI generation for remaining text fields (batched)
           const stillUnmatched = unmatchedFields.filter(
-            (nf) => !fillResults.has(nf.selector) && nf.label.length >= 8,
-          );
+            (nf) => !fillResults.has(nf.selector) || !fillResults.get(nf.selector)?.value,
+          ).filter((nf) => nf.label.length >= 8);
           if (stillUnmatched.length > 0) {
             chrome.runtime.sendMessage({
               type: "SCAN_STATUS",
@@ -329,27 +353,6 @@ export default defineContentScript({
               if (result.status === "fulfilled" && result.value) {
                 fillResults.set(result.value.fieldId, result.value);
               }
-            }
-          }
-
-          // Add remaining unmatched as manual entries
-          const matchedAfterCascade = new Set(
-            Array.from(fillResults.values()).map((r) => r.selector),
-          );
-          for (const nf of unmatchedFields) {
-            if (!matchedAfterCascade.has(nf.selector)) {
-              fillResults.set(nf.selector, {
-                fieldId: nf.selector,
-                label: nf.label,
-                selector: nf.selector,
-                tier: null as unknown as 1,
-                confidence: "none" as "low",
-                value: "",
-                profileKey: null as unknown as string,
-                autoFilled: false,
-                element: nf.element || document.body,
-                originalValue: "",
-              });
             }
           }
 
