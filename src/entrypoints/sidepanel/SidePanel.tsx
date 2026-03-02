@@ -269,7 +269,11 @@ export default function SidePanel() {
   }, []);
 
   const handleFieldEdit = useCallback((fieldId: string, newValue: string, newChecked?: boolean) => {
-    setFields((prev) => prev.map((f) => f.id === fieldId ? { ...f, value: newValue, checked: newChecked ?? f.checked, status: newValue ? "suggested" : "manual" } : f));
+    setFields((prev) => prev.map((f) => f.id === fieldId ? { ...f, value: newValue, checked: newChecked ?? f.checked } : f));
+  }, []);
+
+  const handleFieldBlur = useCallback((fieldId: string) => {
+    setFields((prev) => prev.map((f) => f.id === fieldId ? { ...f, status: f.value ? "suggested" : "manual" } : f));
   }, []);
 
   const handleFill = useCallback(async () => {
@@ -376,22 +380,22 @@ export default function SidePanel() {
 
             {/* Required manual fields (always expanded) */}
             {(statusFilter === "all" || statusFilter === "manual") && manualRequired.length > 0 && (
-              <FieldGroup title={`Required (${manualRequired.length})`} color={RED} defaultOpen={true} grouped={groupedManualReq} onEdit={handleFieldEdit} />
+              <FieldGroup title={`Required (${manualRequired.length})`} color={RED} defaultOpen={true} grouped={groupedManualReq} onEdit={handleFieldEdit} onBlur={handleFieldBlur} />
             )}
 
             {/* Optional manual fields (collapsed when viewing all) */}
             {(statusFilter === "all" || statusFilter === "manual") && manualOptional.length > 0 && (
-              <FieldGroup title={`Optional (${manualOptional.length})`} color={TX4} defaultOpen={statusFilter === "manual"} grouped={groupedManualOpt} onEdit={handleFieldEdit} />
+              <FieldGroup title={`Optional (${manualOptional.length})`} color={TX4} defaultOpen={statusFilter === "manual"} grouped={groupedManualOpt} onEdit={handleFieldEdit} onBlur={handleFieldBlur} />
             )}
 
             {/* Review fields */}
             {(statusFilter === "all" || statusFilter === "suggested") && suggestedFields.length > 0 && (
-              <FieldGroup title={`Review (${suggestedFields.length})`} color={AMBER} defaultOpen={true} grouped={groupedSuggested} onEdit={handleFieldEdit} />
+              <FieldGroup title={`Review (${suggestedFields.length})`} color={AMBER} defaultOpen={true} grouped={groupedSuggested} onEdit={handleFieldEdit} onBlur={handleFieldBlur} />
             )}
 
             {/* Auto-filled (collapsed when viewing all) */}
             {(statusFilter === "all" || statusFilter === "ready") && readyFields.length > 0 && (
-              <FieldGroup title={`Auto-filled (${readyFields.length})`} color={EM} defaultOpen={statusFilter === "ready"} grouped={groupedReady} onEdit={handleFieldEdit} />
+              <FieldGroup title={`Auto-filled (${readyFields.length})`} color={EM} defaultOpen={statusFilter === "ready"} grouped={groupedReady} onEdit={handleFieldEdit} onBlur={handleFieldBlur} />
             )}
           </>
         )}
@@ -506,10 +510,11 @@ function FilePicker({ label, items, selected, onSelect, onUpload }: { label: str
 // FIELD GROUPS & ROWS
 // ═══════════════════════════════════════════
 
-function FieldGroup({ title, color, defaultOpen, grouped, onEdit }: {
+function FieldGroup({ title, color, defaultOpen, grouped, onEdit, onBlur }: {
   title: string; color: string; defaultOpen: boolean;
   grouped: ReturnType<typeof groupCheckboxFields>;
   onEdit: (id: string, value: string, checked?: boolean) => void;
+  onBlur?: (id: string) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   if (grouped.singles.length + grouped.groups.length === 0) return null;
@@ -531,7 +536,7 @@ function FieldGroup({ title, color, defaultOpen, grouped, onEdit }: {
       {grouped.groups.map((g) => <CbGroup key={g.parentLabel} group={g} onEdit={onEdit} />)}
       {Object.entries(sectionMap).map(([sec, flds]) => <div key={sec}>
         {Object.keys(sectionMap).length > 1 && <div style={{ fontSize: 9, color: TX4, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "8px 4px 3px" }}>{sec}</div>}
-        {flds.map((f) => <FieldRow key={f.id} field={f} onEdit={onEdit} />)}
+        {flds.map((f) => <FieldRow key={f.id} field={f} onEdit={onEdit} onBlur={onBlur} />)}
       </div>)}
     </div>}
   </div>;
@@ -568,12 +573,13 @@ function CbGroup({ group, onEdit }: { group: CheckboxGroup; onEdit: (id: string,
 }
 
 /** Individual field row — no Fill button */
-function FieldRow({ field, onEdit }: { field: FillField; onEdit: (id: string, value: string, checked?: boolean) => void }) {
+function FieldRow({ field, onEdit, onBlur }: { field: FillField; onEdit: (id: string, value: string, checked?: boolean) => void; onBlur?: (id: string) => void }) {
   if (isFileUploadField(field)) return null;
 
   const sc = field.status === "ready" ? EM : field.status === "suggested" ? AMBER : TX4;
   const si = field.status === "ready" ? "✓" : field.status === "suggested" ? "≈" : "·";
   const inp: CSSProperties = { width: "100%", background: "rgba(255,255,255,0.04)", border: `1px solid ${BRD}`, borderRadius: 4, padding: "5px 8px", fontSize: 11, color: TX, fontFamily: SANS, boxSizing: "border-box" as const, outline: "none" };
+  const blur = () => onBlur?.(field.id);
 
   const ctrl = () => {
     if (field.fieldType === "checkbox") {
@@ -585,7 +591,7 @@ function FieldRow({ field, onEdit }: { field: FillField; onEdit: (id: string, va
       </label>;
     }
     if (field.fieldType === "select" && field.options?.length) {
-      return <select value={field.value} onChange={(e) => onEdit(field.id, e.target.value)} style={inp}>
+      return <select value={field.value} onChange={(e) => onEdit(field.id, e.target.value)} onBlur={blur} style={inp}>
         <option value="">Select...</option>
         {field.options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>;
@@ -601,9 +607,9 @@ function FieldRow({ field, onEdit }: { field: FillField; onEdit: (id: string, va
       </div>;
     }
     if (needsTextarea(field.label)) {
-      return <textarea value={field.value} onChange={(e) => onEdit(field.id, e.target.value)} rows={3} placeholder={field.required ? "Required" : "Optional"} style={{ ...inp, resize: "vertical" as const, minHeight: 54, lineHeight: 1.4 }} />;
+      return <textarea value={field.value} onChange={(e) => onEdit(field.id, e.target.value)} onBlur={blur} rows={3} placeholder={field.required ? "Required" : "Optional"} style={{ ...inp, resize: "vertical" as const, minHeight: 54, lineHeight: 1.4 }} />;
     }
-    return <input type="text" value={field.value} onChange={(e) => onEdit(field.id, e.target.value)} placeholder={field.required ? "Required" : "Optional"} style={inp} />;
+    return <input type="text" value={field.value} onChange={(e) => onEdit(field.id, e.target.value)} onBlur={blur} placeholder={field.required ? "Required" : "Optional"} style={inp} />;
   };
 
   return <div style={{ padding: "6px 4px", borderBottom: "1px solid rgba(255,255,255,0.02)" }}>
