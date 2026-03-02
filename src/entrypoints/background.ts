@@ -28,7 +28,6 @@ export default defineBackground(() => {
   ];
 
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    // Check on both loading (URL available early) and complete
     const url = changeInfo.url || tab.url;
     if (!url) return;
     if (changeInfo.status !== "complete" && changeInfo.status !== "loading") return;
@@ -36,6 +35,21 @@ export default defineBackground(() => {
     if (isATS) {
       chrome.action.setBadgeText({ tabId, text: "•" });
       chrome.action.setBadgeBackgroundColor({ tabId, color: "#10b981" });
+      // Proactively ensure content script is running — covers cases where
+      // declarative injection was slow or the page loaded before the extension
+      if (changeInfo.status === "loading") {
+        try {
+          await chrome.tabs.sendMessage(tabId, { type: "PING" });
+        } catch {
+          // Content script not yet injected — inject programmatically
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId },
+              files: ["content-scripts/content.js"],
+            });
+          } catch {}
+        }
+      }
     } else if (changeInfo.status === "complete") {
       chrome.action.setBadgeText({ tabId, text: "" });
       chrome.storage.session.remove(`tab_${tabId}`).catch(() => {});

@@ -46,9 +46,14 @@ export default defineContentScript({
     "https://*.recruitee.com/*",
     "https://*.workable.com/*",
   ],
+  runAt: "document_end",
   allFrames: false,
 
   main() {
+    // Prevent double-injection (declarative + programmatic)
+    if ((window as unknown as Record<string, boolean>).__vetidia_loaded) return;
+    (window as unknown as Record<string, boolean>).__vetidia_loaded = true;
+
     try {
       console.log("[Vetidia] Content script loaded on:", window.location.href);
 
@@ -107,11 +112,33 @@ export default defineContentScript({
       // PHASE 2: Scan fields (requires auth — triggered automatically or on demand)
       // ═══════════════════════════════════════════════════════
 
-      // Auto-scan after a short delay (lets React forms render)
-      const scanDelay = platform === "workday" ? 2000 : 800;
-      setTimeout(() => {
-        if (!initialized) scanFields(platform);
-      }, scanDelay);
+      // Smart trigger: scan as soon as form fields appear in the DOM, or after max timeout
+      function waitForFieldsThenScan(plat: string, maxWait = 5000) {
+        // Check immediately — fields may already exist
+        if (countFormFields(document) > 0) {
+          scanFields(plat);
+          return;
+        }
+        // Watch for form fields to appear
+        let resolved = false;
+        const fire = () => {
+          if (resolved) return;
+          resolved = true;
+          obs.disconnect();
+          clearTimeout(timer);
+          scanFields(plat);
+        };
+        const obs = new MutationObserver(() => {
+          if (countFormFields(document) > 0) fire();
+        });
+        obs.observe(document.body || document.documentElement, {
+          childList: true, subtree: true,
+        });
+        // Fallback: max wait (covers dynamically loaded forms)
+        const timer = setTimeout(fire, maxWait);
+      }
+
+      waitForFieldsThenScan(platform, platform === "workday" ? 5000 : 3000);
 
       // Workday multi-page wizard: rescan on DOM changes
       if (platform === "workday") {
@@ -141,7 +168,7 @@ export default defineContentScript({
           // Re-scan fields
           initialized = false;
           fillResults.clear();
-          setTimeout(() => scanFields(newPlatform), 800);
+          waitForFieldsThenScan(newPlatform, 3000);
         }
       });
 
@@ -494,6 +521,11 @@ export default defineContentScript({
       chrome.runtime.onMessage.addListener(
         (message: Record<string, unknown>, _sender, sendResponse) => {
           const msgType = message.type as string;
+
+          if (msgType === "PING") {
+            sendResponse({ alive: true });
+            return false;
+          }
 
           if (msgType === "RESCAN_FIELDS") {
             if (!platform) {
