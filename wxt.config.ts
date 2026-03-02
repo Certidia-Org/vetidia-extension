@@ -8,7 +8,7 @@ export default defineConfig({
     name: "Vetidia — Smart Job Application Autofill",
     description:
       "AI-powered job application autofill. Fill forms intelligently from your Vetidia career vault.",
-    version: "0.2.0",
+    version: "0.3.0",
     permissions: [
       "activeTab",
       "scripting",
