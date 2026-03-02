@@ -200,6 +200,27 @@ export default function SidePanel() {
     });
   }, []);
 
+  // ── Restore full state from a tab context payload (push or init) ──
+  const restoreTabState = useCallback((payload: Record<string, unknown>) => {
+    const jobData = payload.job as JobDetected | null;
+    const fieldsData = payload.fields as Record<string, unknown> | null;
+    const scanData = payload.scanStatus as ScanStatus | null;
+    const fillData = payload.fillResult as { filled: number; total: number } | null;
+
+    setJob(jobData || null);
+    setFillResult(fillData || null);
+    setFilling(false);
+    setStatusFilter("all");
+
+    if (fieldsData?.fields) {
+      setFields(parseFields(fieldsData.fields as unknown[]));
+      setScanStatus(scanData || { status: "complete" });
+    } else {
+      setFields([]);
+      setScanStatus(scanData || { status: "idle" });
+    }
+  }, [parseFields]);
+
   // ── Init ──
   useEffect(() => {
     let m = true;
@@ -232,27 +253,7 @@ export default function SidePanel() {
     return () => { m = false; };
   }, [parseFields, restoreTabState]);
 
-  // ── Restore full state from a tab context payload (push or init) ──
-  const restoreTabState = useCallback((payload: Record<string, unknown>) => {
-    const jobData = payload.job as JobDetected | null;
-    const fieldsData = payload.fields as Record<string, unknown> | null;
-    const scanData = payload.scanStatus as ScanStatus | null;
-    const fillData = payload.fillResult as { filled: number; total: number } | null;
-
-    setJob(jobData || null);
-    setFillResult(fillData || null);
-    setFilling(false);
-    setStatusFilter("all");
-
-    if (fieldsData?.fields) {
-      setFields(parseFields(fieldsData.fields as unknown[]));
-      setScanStatus(scanData || { status: "complete" });
-    } else {
-      setFields([]);
-      setScanStatus(scanData || { status: "idle" });
-    }
-  }, [parseFields]);
-
+  // ── Listen for messages (including TAB_CONTEXT_CHANGED) ──
   useEffect(() => {
     const listener = (msg: Record<string, unknown>) => {
       // ★ TAB SWITCH — background pushes full state, side panel renders instantly
