@@ -256,6 +256,33 @@ export default function SidePanel() {
         // Don't set complete here — wait for SCAN_STATUS: complete
       }
       if (msg.type === "FILL_COMPLETE") { const p = msg.payload as { filledCount: number; total: number }; setFillResult({ filled: p.filledCount, total: p.total }); setFilling(false); }
+      if (msg.type === "TAB_ACTIVATED") {
+        const p = msg.payload as { tabId: number; state: Record<string, unknown> | null };
+        if (p.state?.job) {
+          setJob(p.state.job as JobDetected);
+          if (p.state.fields) {
+            const fs = p.state.fields as Record<string, unknown>;
+            setFields(parseFields((fs.fields as unknown[]) || []));
+            setScanStatus({ status: "complete" });
+          } else {
+            setFields([]);
+            setScanStatus({ status: "idle" });
+          }
+          if (p.state.fillResult) {
+            const fr = p.state.fillResult as { filledCount: number; total: number };
+            setFillResult({ filled: fr.filledCount, total: fr.total });
+          } else {
+            setFillResult(null);
+          }
+        } else {
+          // Non-ATS tab — reset to empty state
+          setJob(null);
+          setFields([]);
+          setScanStatus({ status: "idle" });
+          setFillResult(null);
+        }
+        setStatusFilter("all");
+      }
     };
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);

@@ -46,6 +46,17 @@ export default defineBackground(() => {
     chrome.storage.session.remove(`tab_${tabId}`).catch(() => {});
   });
 
+  // Notify side panel when user switches tabs so it can restore per-tab state
+  chrome.tabs.onActivated.addListener(async (activeInfo) => {
+    const tabKey = `tab_${activeInfo.tabId}`;
+    const stored = await chrome.storage.session.get(tabKey).catch(() => ({}));
+    const tabState = stored[tabKey] ?? null;
+    chrome.runtime.sendMessage({
+      type: "TAB_ACTIVATED",
+      payload: { tabId: activeInfo.tabId, state: tabState },
+    }).catch(() => {});
+  });
+
   supabase.auth.onAuthStateChange((event, _session) => {
     if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
       console.log(`[Vetidia] Auth event: ${event}`);
