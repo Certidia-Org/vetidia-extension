@@ -27,36 +27,95 @@ export default defineBackground(() => {
     "jobvite.com", "recruitee.com", "workable.com",
   ];
 
+  // ═══════════════════════════════════════════════════════
+  // TAB AWARENESS — push context to side panel on every tab switch
+  // ═══════════════════════════════════════════════════════
+
+  // Helper: push stored state for a tab to the side panel
+  async function pushTabContext(tabId: number) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      const tabKey = `tab_${tabId}`;
+      const stored = await chrome.storage.session.get(tabKey);
+      const tabState = stored[tabKey] as Record<string, unknown> | undefined;
+
+      chrome.runtime.sendMessage({
+        type: "TAB_CONTEXT_CHANGED",
+        payload: {
+          tabId,
+          url: tab.url || "",
+          job: tabState?.job || null,
+          fields: tabState?.fields || null,
+          scanStatus: tabState?.scanStatus || null,
+          fillResult: tabState?.fillResult || null,
+        },
+      }).catch(() => {});
+    } catch {}
+  }
+
+  // ─── Tab switch: push stored state to side panel instantly ───
+  chrome.tabs.onActivated.addListener(({ tabId }) => {
+    pushTabContext(tabId);
+  });
+
+  // ─── Window focus: push active tab state for the new window ───
+  chrome.windows.onFocusChanged.addListener(async (windowId) => {
+    if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, windowId });
+      if (tab?.id) pushTabContext(tab.id);
+    } catch {}
+  });
+
+  // ─── Tab navigation: detect URL changes, manage badges, proactive injection ───
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     const url = changeInfo.url || tab.url;
     if (!url) return;
     if (changeInfo.status !== "complete" && changeInfo.status !== "loading") return;
     const isATS = ATS_URL_PATTERNS.some((p) => url.includes(p));
+
     if (isATS) {
       chrome.action.setBadgeText({ tabId, text: "•" });
       chrome.action.setBadgeBackgroundColor({ tabId, color: "#10b981" });
-      // Proactively ensure content script is running — covers cases where
-      // declarative injection was slow or the page loaded before the extension
+      // Proactively ensure content script is running
       if (changeInfo.status === "loading") {
-        try {
-          await chrome.tabs.sendMessage(tabId, { type: "PING" });
-        } catch {
-          // Content script not yet injected — inject programmatically
-          try {
-            await chrome.scripting.executeScript({
-              target: { tabId },
-              files: ["content-scripts/content.js"],
-            });
-          } catch {}
+        try { await chrome.tabs.sendMessage(tabId, { type: "PING" }); }
+        catch {
+          try { await chrome.scripting.executeScript({ target: { tabId }, files: ["content-scripts/content.js"] }); } catch {}
         }
       }
     } else if (changeInfo.status === "complete") {
       chrome.action.setBadgeText({ tabId, text: "" });
-      chrome.storage.session.remove(`tab_${tabId}`).catch(() => {});
+    }
+
+    // If URL changed on the active tab, clear old state and notify side panel
+    if (changeInfo.url) {
+      try {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (activeTab?.id === tabId) {
+          const tabKey = `tab_${tabId}`;
+          const stored = await chrome.storage.session.get(tabKey);
+          const existing = (stored[tabKey] as Record<string, unknown>) || {};
+          const oldUrl = (existing.url as string) || "";
+          try {
+            const oldPath = new URL(oldUrl).origin + new URL(oldUrl).pathname;
+            const newPath = new URL(changeInfo.url).origin + new URL(changeInfo.url).pathname;
+            if (oldPath === newPath) return; // Fragment-only change, ignore
+          } catch {}
+          // New page — clear state, content script will re-populate
+          await chrome.storage.session.set({
+            [tabKey]: { url: changeInfo.url, job: null, fields: null, scanStatus: null, fillResult: null },
+          });
+          chrome.runtime.sendMessage({
+            type: "TAB_CONTEXT_CHANGED",
+            payload: { tabId, url: changeInfo.url, job: null, fields: null, scanStatus: null, fillResult: null },
+          }).catch(() => {});
+        }
+      } catch {}
     }
   });
 
-  // Tab state cleanup on close
+  // ─── Tab closed: clean up session storage ───
   chrome.tabs.onRemoved.addListener((tabId) => {
     chrome.storage.session.remove(`tab_${tabId}`).catch(() => {});
   });
@@ -126,11 +185,12 @@ async function handleMessage(message: BackgroundMessage, senderTabId?: number) {
         // Set badge icon
         chrome.action.setBadgeText({ tabId: senderTabId, text: "•" });
         chrome.action.setBadgeBackgroundColor({ tabId: senderTabId, color: "#10b981" });
-        // Store tab state in session storage
+        // Store tab state in session storage (include url for URL-change detection)
         const tabKey = `tab_${senderTabId}`;
         const existing = await chrome.storage.session.get(tabKey);
+        const jobPayload = message.payload as Record<string, unknown>;
         await chrome.storage.session.set({
-          [tabKey]: { ...((existing[tabKey] as object) || {}), job: message.payload },
+          [tabKey]: { ...((existing[tabKey] as object) || {}), job: message.payload, url: jobPayload.url || "" },
         });
       }
       // Forward to all extension pages (side panel picks this up)
@@ -498,6 +558,7 @@ async function handleMessage(message: BackgroundMessage, senderTabId?: number) {
           [tabKey]: {
             ...tabState,
             fields: message.payload,
+            scanStatus: { status: "complete" },
             pageHistory: updatedPages,
             currentPage: pageNum,
             totalFieldsAcrossPages,
@@ -522,11 +583,15 @@ async function handleMessage(message: BackgroundMessage, senderTabId?: number) {
     }
 
     case "SCAN_STATUS": {
-      // Forward scan progress to side panel
-      chrome.runtime.sendMessage({
-        type: "SCAN_STATUS",
-        payload: message.payload,
-      }).catch(() => {});
+      // Store scan status in per-tab session storage + forward to side panel
+      if (senderTabId) {
+        const tabKey = `tab_${senderTabId}`;
+        const existing = await chrome.storage.session.get(tabKey);
+        await chrome.storage.session.set({
+          [tabKey]: { ...((existing[tabKey] as object) || {}), scanStatus: message.payload },
+        });
+      }
+      chrome.runtime.sendMessage({ type: "SCAN_STATUS", payload: message.payload }).catch(() => {});
       return { success: true };
     }
 
@@ -567,10 +632,23 @@ async function handleMessage(message: BackgroundMessage, senderTabId?: number) {
 
     case "GET_TAB_STATE": {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id) return { state: null };
+      if (!tab?.id) return { state: null, tabId: null, url: null };
       const tabKey = `tab_${tab.id}`;
       const stored = await chrome.storage.session.get(tabKey);
-      return { state: stored[tabKey] ?? null };
+      return { state: stored[tabKey] ?? null, tabId: tab.id, url: tab.url || "" };
+    }
+
+    case "SAVE_PANEL_STATE": {
+      // Side panel saves field edits / fill results back to per-tab storage
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return { success: false };
+      const tabKey = `tab_${tab.id}`;
+      const existing = await chrome.storage.session.get(tabKey);
+      const patch = (message.payload ?? {}) as Record<string, unknown>;
+      await chrome.storage.session.set({
+        [tabKey]: { ...((existing[tabKey] as object) || {}), ...patch },
+      });
+      return { success: true };
     }
 
     case "PANEL_FILL_FIELDS": {
